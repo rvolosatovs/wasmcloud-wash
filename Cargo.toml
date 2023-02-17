@@ -18,7 +18,7 @@ maintenance = {status = "actively-developed"}
 anyhow = {version = "1.0.66", features = ["backtrace"]}
 async-nats = "0.23.0"
 atelier_core = "0.2"
-bytes = "1.0"
+bytes = "1.4"
 cargo_atelier = "0.2"
 clap = { version="4", features=["derive", "env"] }
 cloudevents-sdk = "0.6.0"
