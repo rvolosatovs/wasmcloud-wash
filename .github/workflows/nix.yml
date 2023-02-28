@@ -1,0 +1,167 @@
+name: nix
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform:
+        - host: macos-latest
+          target: aarch64-apple-darwin
+          test-bin: file ./result/bin/wash
+          test-oci: echo "OCI runtime not available, skip"
+
+        - host: ubuntu-latest
+          target: aarch64-unknown-linux-musl
+          test-bin: nix shell --inputs-from . 'nixpkgs#qemu' -c qemu-aarch64 ./result/bin/wash
+          test-oci: docker load < ./result
+          # TODO: Run aarch64 binary within OCI
+
+        - host: macos-latest
+          target: x86_64-apple-darwin
+          test-bin: ./result/bin/wash
+          test-oci: echo "OCI runtime not available, skip"
+
+        - host: ubuntu-latest
+          target: x86_64-unknown-linux-musl
+          test-bin: ./result/bin/wash
+          test-oci: |
+            docker load < ./result
+            docker run --rm wash:$(nix eval --raw .#wash-cli-x86_64-unknown-linux-musl-oci.imageTag) wash
+
+    name: "build wash-${{ matrix.platform.target }}"
+    runs-on: ${{ matrix.platform.host }}
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cachix/install-nix-action@v18
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+    - run: nix build -L --show-trace '.#wash-cli-${{ matrix.platform.target }}'
+    - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result/bin/wash "wash-${{ matrix.platform.target }}"
+    - uses: actions/upload-artifact@v3
+      with:
+        name: wash-${{ matrix.platform.target }}
+        path: wash-${{ matrix.platform.target }}
+    - run: ${{ matrix.platform.test-bin }}
+
+    - run: nix build -L --show-trace '.#wash-cli-${{ matrix.platform.target }}-oci'
+    - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result "wash-${{ matrix.platform.target }}-oci"
+    - uses: actions/upload-artifact@v3
+      with:
+        name: wash-${{ matrix.platform.target }}-oci
+        path: wash-${{ matrix.platform.target }}-oci
+    - run: ${{ matrix.platform.test-oci }}
+
+  lipo:
+    needs: build
+    runs-on: macos-latest
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: wash-aarch64-apple-darwin
+    - uses: actions/download-artifact@v3
+      with:
+        name: wash-x86_64-apple-darwin
+    - run: lipo -create ./wash-aarch64-apple-darwin ./wash-x86_64-apple-darwin -output ./wash-universal-darwin
+    - run: ./wash-universal-darwin
+    - uses: actions/upload-artifact@v3
+      with:
+        name: wash-universal-darwin
+        path: wash-universal-darwin
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cachix/install-nix-action@v18
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+    - run: nix fmt
+
+  run:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cachix/install-nix-action@v18
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix run -L
+
+  develop:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cachix/install-nix-action@v18
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix develop -L --ignore-environment -c cargo test
+
+  cargo-clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cachix/install-nix-action@v18
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix build -L .#checks.x86_64-linux.clippy
+
+  cargo-nextest:
+    name: cargo nextest
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cachix/install-nix-action@v18
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix build -L .#checks.x86_64-linux.nextest
+
+  cargo-fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cachix/install-nix-action@v18
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix build -L .#checks.x86_64-linux.fmt
