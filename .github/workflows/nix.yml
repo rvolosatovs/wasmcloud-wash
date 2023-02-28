@@ -1,0 +1,191 @@
+name: nix
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform:
+        - host: macos-12
+          target: aarch64-apple-darwin
+          # TODO: Run aarch64 binary on host system and via OCI
+          test-bin: file ./result/bin/wash
+          test-oci: echo "OCI runtime not available, skip"
+
+        - host: ubuntu-22.04
+          target: aarch64-unknown-linux-musl
+          test-bin: nix shell --inputs-from . 'nixpkgs#qemu' -c qemu-aarch64 ./result/bin/wash help
+          test-oci: docker load < ./result
+          # TODO: Run aarch64 binary within OCI
+
+        - host: macos-12
+          target: x86_64-apple-darwin
+          test-bin: ./result/bin/wash help
+          test-oci: echo "OCI runtime not available, skip"
+
+        - host: ubuntu-22.04
+          target: x86_64-unknown-linux-musl
+          test-bin: ./result/bin/wash help
+          test-oci: |
+            docker load < ./result
+            docker run --rm wash:$(nix eval --raw .#wash-x86_64-unknown-linux-musl-oci.imageTag) wash help
+
+    name: "build wash-${{ matrix.platform.target }}"
+    runs-on: ${{ matrix.platform.host }}
+    steps:
+    - uses: actions/checkout@v3
+    - uses: nixbuild/nix-quick-install-action@v21
+      with:
+        nix_conf: |
+          experimental-features = nix-command flakes
+          access-tokens = github.com=${{ github.token }}
+          substituters = https://cache.nixos.org https://cache.garnix.io
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+    - run: nix build -L --show-trace '.#wash-${{ matrix.platform.target }}'
+    - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result/bin/wash "wash-${{ matrix.platform.target }}"
+    - uses: actions/upload-artifact@v3
+      with:
+        name: wash-${{ matrix.platform.target }}
+        path: wash-${{ matrix.platform.target }}
+    - run: ${{ matrix.platform.test-bin }}
+
+    - run: nix build -L --show-trace '.#wash-${{ matrix.platform.target }}-oci'
+    - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result "wash-${{ matrix.platform.target }}-oci"
+    - uses: actions/upload-artifact@v3
+      with:
+        name: wash-${{ matrix.platform.target }}-oci
+        path: wash-${{ matrix.platform.target }}-oci
+    - run: ${{ matrix.platform.test-oci }}
+
+  lipo:
+    name: "build wash-universal-darwin"
+    needs: build
+    runs-on: macos-12
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: wash-aarch64-apple-darwin
+    - uses: actions/download-artifact@v3
+      with:
+        name: wash-x86_64-apple-darwin
+    - run: lipo -create ./wash-aarch64-apple-darwin ./wash-x86_64-apple-darwin -output ./wash-universal-darwin
+    - run: chmod +x ./wash-universal-darwin
+    - run: ./wash-universal-darwin help
+    - uses: actions/upload-artifact@v3
+      with:
+        name: wash-universal-darwin
+        path: wash-universal-darwin
+
+  fmt:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - uses: nixbuild/nix-quick-install-action@v21
+      with:
+        nix_conf: |
+          experimental-features = nix-command flakes
+          access-tokens = github.com=${{ github.token }}
+          substituters = https://cache.nixos.org https://cache.garnix.io
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+    - run: nix fmt
+
+  run:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - uses: nixbuild/nix-quick-install-action@v21
+      with:
+        nix_conf: |
+          experimental-features = nix-command flakes
+          access-tokens = github.com=${{ github.token }}
+          substituters = https://cache.nixos.org https://cache.garnix.io
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix run -L . help
+
+  develop:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - uses: nixbuild/nix-quick-install-action@v21
+      with:
+        nix_conf: |
+          experimental-features = nix-command flakes
+          access-tokens = github.com=${{ github.token }}
+          substituters = https://cache.nixos.org https://cache.garnix.io
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix develop -L --ignore-environment -k HOME -c cargo test --bin wash
+
+  cargo-clippy:
+    name: cargo clippy
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - uses: nixbuild/nix-quick-install-action@v21
+      with:
+        nix_conf: |
+          experimental-features = nix-command flakes
+          access-tokens = github.com=${{ github.token }}
+          substituters = https://cache.nixos.org https://cache.garnix.io
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix build -L .#checks.x86_64-linux.clippy
+
+  cargo-nextest:
+    name: cargo nextest
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - uses: nixbuild/nix-quick-install-action@v21
+      with:
+        nix_conf: |
+          experimental-features = nix-command flakes
+          access-tokens = github.com=${{ github.token }}
+          substituters = https://cache.nixos.org https://cache.garnix.io
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix build -L .#checks.x86_64-linux.nextest
+
+  cargo-fmt:
+    name: cargo fmt
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - uses: nixbuild/nix-quick-install-action@v21
+      with:
+        nix_conf: |
+          experimental-features = nix-command flakes
+          access-tokens = github.com=${{ github.token }}
+          substituters = https://cache.nixos.org https://cache.garnix.io
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+    - uses: cachix/cachix-action@v12
+      with:
+        name: wasmcloud
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix build -L .#checks.x86_64-linux.fmt
