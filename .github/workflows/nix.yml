@@ -9,6 +9,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 1 # abort caching attempt if it's slow
+
 jobs:
   build:
     strategy:
@@ -42,6 +45,17 @@ jobs:
     runs-on: ${{ matrix.platform.host }}
     steps:
     - uses: actions/checkout@v3
+    - name: mkdir -p /nix
+      if: ${{ runner.os == 'Linux' }}
+      run: sudo mkdir -p /nix
+    - name: chown /nix
+      if: ${{ runner.os == 'Linux' }}
+      run: sudo chown $(whoami) /nix
+    - uses: actions/cache@v3
+      if: ${{ runner.os == 'Linux' }}
+      with:
+        path: /nix
+        key: nix
     - uses: nixbuild/nix-quick-install-action@v21
       with:
         nix_conf: |
@@ -94,6 +108,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
+    - name: mkdir -p /nix
+      run: sudo mkdir -p /nix
+    - name: chown /nix
+      run: sudo chown $(whoami) /nix
+    - uses: actions/cache@v3
+      with:
+        path: /nix
+        key: nix
     - uses: nixbuild/nix-quick-install-action@v21
       with:
         nix_conf: |
@@ -107,6 +129,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
+    - name: mkdir -p /nix
+      run: sudo mkdir -p /nix
+    - name: chown /nix
+      run: sudo chown $(whoami) /nix
+    - uses: actions/cache@v3
+      with:
+        path: /nix
+        key: nix
     - uses: nixbuild/nix-quick-install-action@v21
       with:
         nix_conf: |
@@ -125,6 +155,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
+    - name: mkdir -p /nix
+      run: sudo mkdir -p /nix
+    - name: chown /nix
+      run: sudo chown $(whoami) /nix
+    - uses: actions/cache@v3
+      with:
+        path: /nix
+        key: nix
     - uses: nixbuild/nix-quick-install-action@v21
       with:
         nix_conf: |
@@ -144,6 +182,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
+    - name: mkdir -p /nix
+      run: sudo mkdir -p /nix
+    - name: chown /nix
+      run: sudo chown $(whoami) /nix
+    - uses: actions/cache@v3
+      with:
+        path: /nix
+        key: nix
     - uses: nixbuild/nix-quick-install-action@v21
       with:
         nix_conf: |
@@ -163,6 +209,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
+    - name: mkdir -p /nix
+      run: sudo mkdir -p /nix
+    - name: chown /nix
+      run: sudo chown $(whoami) /nix
+    - uses: actions/cache@v3
+      with:
+        path: /nix
+        key: nix
     - uses: nixbuild/nix-quick-install-action@v21
       with:
         nix_conf: |
@@ -182,6 +236,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
+    - name: mkdir -p /nix
+      run: sudo mkdir -p /nix
+    - name: chown /nix
+      run: sudo chown $(whoami) /nix
+    - uses: actions/cache@v3
+      with:
+        path: /nix
+        key: nix
     - uses: nixbuild/nix-quick-install-action@v21
       with:
         nix_conf: |
